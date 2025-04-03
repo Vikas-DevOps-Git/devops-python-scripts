@@ -189,3 +189,35 @@ class EKSHealthChecker:
                 })
                 log.warning(f"Pod {pod.metadata.name} stuck in Pending: {conditions}")
         return pending
+
+
+    def get_summary(self, namespace: str, restart_threshold: int = 5,
+                    lookback_minutes: int = 60) -> dict:
+        """
+        Run all checks and return a summary dict.
+        Convenience method for one-call health reporting.
+        """
+        nodes = self.check_nodes()
+        deployments = self.check_deployments(namespace)
+        oom = self.check_oom_events(namespace, lookback_minutes)
+        hpa = self.check_hpa(namespace)
+        restarts = self.check_restart_counts(namespace, restart_threshold)
+        pending = self.check_pending_pods(namespace)
+
+        unhealthy = (
+            len([n for n in nodes if not n["ready"]]) +
+            len([d for d in deployments if not d["healthy"]]) +
+            len(oom) + len([h for h in hpa if h["at_max_capacity"]]) +
+            len(restarts) + len(pending)
+        )
+
+        return {
+            "overall_status": "DEGRADED" if unhealthy > 0 else "HEALTHY",
+            "unhealthy_count": unhealthy,
+            "nodes": nodes,
+            "deployments": deployments,
+            "oom_events": oom,
+            "hpa": hpa,
+            "restart_alerts": restarts,
+            "pending_pods": pending,
+        }
